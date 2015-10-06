@@ -5,7 +5,7 @@ import (
 	"net/mail"
 	"testing"
 
-	"github.com/pcasaretto/mailvalidation"
+	"github.com/jeanmatheussouto/mailvalidation"
 )
 
 func TestDNSLookupValidatorValidate(t *testing.T) {

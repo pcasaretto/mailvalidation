@@ -40,19 +40,21 @@ func NewDNSLookupValidator(client DNSValidatorClient) *DNSLookupValidator {
 	return &DNSLookupValidator{client}
 }
 
+func extractDomain(m *mail.Address) string {
+	return strings.SplitAfter(m.Address, "@")[1]
+}
+
 func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
 	var hosts []string
-	domain := strings.SplitAfter(m.Address, "@")[1]
+	domain := extractDomain(m)
 
 	// LookupMX
 	mxs, err := d.dnsClient.LookupMX(domain)
 
-	// fmt.Println("Mxs: ", mxs, err)
-
 	if err != nil || len(mxs) == 0 {
 		// Lookup A
 		ips, err := d.dnsClient.LookupIP(domain)
-		// fmt.Println("Ips: ", ips, err)
+		fmt.Println("Ips: ", ips, err)
 		if err != nil || len(ips) == 0 {
 			return false
 		} else {
@@ -102,8 +104,8 @@ func merge(cs ...<-chan struct{}) <-chan struct{} {
 	var wg sync.WaitGroup
 	out := make(chan struct{})
 
-	// Start an output goroutine for each input channel in cs.  output
-	// copies values from c to out until c is closed, then calls wg.Done.
+	// Start an output goroutine for each input channel in cs.
+	// output copies values from c to out until c is closed, then calls wg.Done.
 	output := func(c <-chan struct{}) {
 		for n := range c {
 			out <- n
