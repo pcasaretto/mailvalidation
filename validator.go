@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/mail"
+	"strings"
 	"sync"
 	"time"
 )
@@ -40,16 +41,18 @@ func NewDNSLookupValidator(client DNSValidatorClient) *DNSLookupValidator {
 }
 
 func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
-
 	var hosts []string
-	domain := "rdstation.com"
+	domain := strings.SplitAfter(m.Address, "@")[1]
+
 	// LookupMX
 	mxs, err := d.dnsClient.LookupMX(domain)
-	fmt.Println(mxs, err)
+
+	// fmt.Println("Mxs: ", mxs, err)
+
 	if err != nil || len(mxs) == 0 {
 		// Lookup A
 		ips, err := d.dnsClient.LookupIP(domain)
-		fmt.Println(ips, err)
+		// fmt.Println("Ips: ", ips, err)
 		if err != nil || len(ips) == 0 {
 			return false
 		} else {
@@ -62,7 +65,7 @@ func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
 			hosts = append(hosts, mx.Host)
 		}
 	}
-	fmt.Println(hosts)
+	// fmt.Println("Hosts: ", hosts)
 
 	done := make(chan struct{})
 	defer close(done)
@@ -74,7 +77,7 @@ func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
 		outs = append(outs, out)
 		go func(host string) {
 			addr := fmt.Sprintf("%s:smtp", host)
-			fmt.Println("dialing ", addr)
+			// fmt.Println("dialing ", addr)
 			conn, err := net.Dial("tcp", addr)
 			if err != nil {
 				return
