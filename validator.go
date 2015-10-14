@@ -31,13 +31,14 @@ func (c defaultValidatorClient) LookupIP(host string) (ips []net.IP, err error) 
 
 type DNSLookupValidator struct {
 	dnsClient DNSValidatorClient
+	Timeout   time.Duration
 }
 
 func NewDNSLookupValidator(client DNSValidatorClient) *DNSLookupValidator {
 	if client == nil {
 		client = defaultValidatorClient{}
 	}
-	return &DNSLookupValidator{client}
+	return &DNSLookupValidator{client, 5 * time.Second}
 }
 
 func extractDomain(m *mail.Address) string {
@@ -80,7 +81,7 @@ func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
 		go func(host string) {
 			addr := fmt.Sprintf("%s:smtp", host)
 			// fmt.Println("dialing ", addr)
-			conn, err := net.Dial("tcp", addr)
+			conn, err := net.DialTimeout("tcp", addr, d.Timeout)
 			if err != nil {
 				return
 			}
@@ -95,7 +96,7 @@ func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
 	select {
 	case <-merge(outs...):
 		return true
-	case <-time.After(time.Second):
+	case <-time.After(d.Timeout):
 		return false
 	}
 }
