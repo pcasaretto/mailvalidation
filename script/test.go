@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -15,12 +16,16 @@ import (
 
 var total, invalid int32
 
+var paralellism = flag.Int("p", 100, "the amount of go routines to use")
+
 func main() {
+
+	flag.Parse()
 
 	var r io.Reader
 
-	if len(os.Args) > 1 {
-		f, err := os.Open(os.Args[1])
+	if len(flag.Args()) > 1 {
+		f, err := os.Open(flag.Args()[1])
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -32,8 +37,8 @@ func main() {
 	ch := make(chan string)
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
+	wg.Add(*paralellism)
+	for i := 0; i < *paralellism; i++ {
 		go work(ch, &wg)
 	}
 	scanner := bufio.NewScanner(r)
