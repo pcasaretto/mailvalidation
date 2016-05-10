@@ -3,7 +3,6 @@ package mailvalidation_test
 import (
 	"errors"
 	"net"
-	"net/mail"
 	"testing"
 	"time"
 
@@ -11,9 +10,6 @@ import (
 )
 
 func TestValidate(t *testing.T) {
-
-	addr, _ := mail.ParseAddress("pcasaretto@gmail.com")
-	// mx := &net.MX{}
 
 	goodConnection := func(network, address string, timeout time.Duration) (net.Conn, error) {
 		conn, _ := net.Pipe()
@@ -92,8 +88,8 @@ func TestValidate(t *testing.T) {
 		mailvalidation.LookupMX = test.LookupMX
 		mailvalidation.LookupIP = test.LookupIP
 		mailvalidation.DialTimeout = test.DialTimeout
-		validator := mailvalidation.NewDNSLookupValidator()
-		valid := validator.Validate(addr)
+		validator := mailvalidation.NewSMTPCheck()
+		valid := validator.Validate("pcasaretto@gmail.com")
 
 		if valid != test.Expected {
 			t.Errorf("test %d:\n\rgot %t\n\rwant %t", i, valid, test.Expected)
@@ -113,12 +109,10 @@ func TestValidateTimeout(t *testing.T) {
 		return nil, nil
 	}
 
-	validator := mailvalidation.NewDNSLookupValidator()
+	validator := mailvalidation.NewSMTPCheck()
 	validator.Timeout = time.Nanosecond
 
-	addr, _ := mail.ParseAddress("pcasaretto@gmail.com")
-
-	valid := validator.Validate(addr)
+	valid := validator.Validate("pcasaretto@gmail.com")
 	if valid {
 		t.Errorf("got %t\n\rwant %t", valid, false)
 	}
