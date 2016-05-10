@@ -13,101 +13,110 @@ type Validator interface {
 	Validate(*mail.Address) (bool, error)
 }
 
-type DNSValidatorClient interface {
-	LookupMX(host string) (mxs []*net.MX, err error)
-	LookupIP(host string) (ips []net.IP, err error)
-}
-
-type defaultValidatorClient struct {
-}
-
-func (c defaultValidatorClient) LookupMX(host string) (mxs []*net.MX, err error) {
-	return net.LookupMX(host)
-}
-
-func (c defaultValidatorClient) LookupIP(host string) (ips []net.IP, err error) {
-	return net.LookupIP(host)
-}
+var LookupMX func(host string) ([]*net.MX, error) = net.LookupMX
+var LookupIP func(host string) ([]net.IP, error) = net.LookupIP
+var DialTimeout func(network, address string, timeout time.Duration) (net.Conn, error) = net.DialTimeout
 
 type DNSLookupValidator struct {
-	dnsClient DNSValidatorClient
-	Timeout   time.Duration
+	Timeout time.Duration
 }
 
-func NewDNSLookupValidator(client DNSValidatorClient) *DNSLookupValidator {
-	if client == nil {
-		client = defaultValidatorClient{}
-	}
-	return &DNSLookupValidator{client, 5 * time.Second}
+func NewDNSLookupValidator() *DNSLookupValidator {
+	return &DNSLookupValidator{5 * time.Second}
 }
 
 func extractDomain(m *mail.Address) string {
 	return strings.SplitAfter(m.Address, "@")[1]
 }
 
-func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
-	var hosts []string
-	domain := extractDomain(m)
+type strategy func(domain string, hosts *[]string) bool
 
-	// LookupMX
-	mxs, err := d.dnsClient.LookupMX(domain)
-
+var checkMX strategy = func(domain string, hosts *[]string) bool {
+	mxs, err := LookupMX(domain)
 	if err != nil || len(mxs) == 0 {
-		// Lookup A
-		ips, err := d.dnsClient.LookupIP(domain)
-		fmt.Println("Ips: ", ips, err)
-		if err != nil || len(ips) == 0 {
-			return false
-		} else {
-			for _, ip := range ips {
-				hosts = append(hosts, ip.String())
-			}
-		}
+		return false
+	}
+	for _, mx := range mxs {
+		*hosts = append(*hosts, mx.Host)
+	}
+	return true
+}
+
+var checkA strategy = func(domain string, hosts *[]string) bool {
+	ips, err := LookupIP(domain)
+	if err != nil || len(ips) == 0 {
+		return false
 	} else {
-		for _, mx := range mxs {
-			hosts = append(hosts, mx.Host)
+		for _, ip := range ips {
+			*hosts = append(*hosts, ip.String())
 		}
 	}
-	// fmt.Println("Hosts: ", hosts)
+	return true
+}
+
+var strategies []strategy = []strategy{checkMX, checkA}
+
+func (d *DNSLookupValidator) Validate(m *mail.Address) bool {
+	domain := extractDomain(m)
+
+	hosts := make([]string, 0, 5)
+	for _, s := range strategies {
+		if s(domain, &hosts) {
+			break
+		}
+	}
+	if len(hosts) < 1 {
+		return false
+	}
 
 	done := make(chan struct{})
 	defer close(done)
 
-	var outs []<-chan struct{}
+	var outs []<-chan bool
 
 	for _, host := range hosts {
-		out := make(chan struct{})
+		out := make(chan bool)
 		outs = append(outs, out)
 		go func(host string) {
+			defer close(out)
 			addr := fmt.Sprintf("%s:smtp", host)
-			// fmt.Println("dialing ", addr)
-			conn, err := net.DialTimeout("tcp", addr, d.Timeout)
-			if err != nil {
+			conn, err := DialTimeout("tcp", addr, d.Timeout)
+			if err != nil || conn == nil {
+				out <- false
 				return
 			}
 			conn.Close()
 			select {
-			case out <- struct{}{}:
+			case out <- true:
 			case <-done:
 			}
 		}(host)
 	}
 
-	select {
-	case <-merge(outs...):
-		return true
-	case <-time.After(d.Timeout):
-		return false
+	total := len(outs)
+	for {
+		select {
+		case r := <-merge(outs...):
+			if r {
+				return true
+			}
+			total--
+			if total == 0 {
+				return false
+			}
+		case <-time.After(d.Timeout):
+			return false
+		}
 	}
 }
 
-func merge(cs ...<-chan struct{}) <-chan struct{} {
+func merge(cs ...<-chan bool) <-chan bool {
 	var wg sync.WaitGroup
-	out := make(chan struct{})
+	out := make(chan bool)
 
 	// Start an output goroutine for each input channel in cs.
 	// output copies values from c to out until c is closed, then calls wg.Done.
-	output := func(c <-chan struct{}) {
+	output := func(c <-chan bool) {
 		for n := range c {
 			out <- n
 		}
